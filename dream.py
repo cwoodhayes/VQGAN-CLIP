@@ -2,11 +2,12 @@ import argparse
 import subprocess
 import pathlib
 import typing
+import shutil
 from tempfile import NamedTemporaryFile
+import re
 
-OUTPUT_IMAGE_NAME = 'output.png'
-OUTPUT_VIDEO_NAME = 'output.mp4'
-OUTPUT_VIDEO_SUFFIX = '.mp4'
+OUTPUT_IMAGE_PATH = pathlib.Path('output.png')
+OUTPUT_VIDEO_PATH = pathlib.Path('output.mp4')
 
 
 def main() -> int:
@@ -24,17 +25,30 @@ def main() -> int:
         output_folder.mkdir(parents=True)
 
     with open(ns.commands_path, 'r') as commands_fp:
-        full_cmd = f"python {ns.generate_script_path} -vid "
+        cmd_root = f"python {ns.generate_script_path} -vid "
+        args = ''
+        img_dst: typing.Optional[pathlib.Path] = None
+
         for idx, line in enumerate(commands_fp):
             line = line.strip()
             if line.startswith('#') or len(line) == 0:
                 continue
-            full_cmd += f' {line}'
+            args += f' {line}'
             if line.endswith('\\'):
-                full_cmd = full_cmd[:-1]
+                args = args[:-1]
                 continue
 
+            if not img_dst:
+                # if we don't have a previous run, see if we can find a cached image from our last run.
+                # this lets us comment out lines in the input script to skip running them (for speed's sake while
+                # iterating on later parts of the dream)
+                img_dst = find_prev_frame(idx, output_name, output_folder)
+            if img_dst:
+                # the next video should start from the last frame of this one
+                args += f" -ii {img_dst}"
+
             # and run that thang, piping stdout out
+            full_cmd = cmd_root + args
             ret = run_cmd(full_cmd)
 
             if ret != 0:
@@ -42,21 +56,35 @@ def main() -> int:
                 return 2
 
             # now grab the outputs and stick them in our output folder.
-            img = pathlib.Path(OUTPUT_IMAGE_NAME)
-            vid = pathlib.Path(OUTPUT_VIDEO_NAME)
+            img_dst = output_folder / f"{output_name}{idx}{OUTPUT_IMAGE_PATH.suffix}"
+            vid_dst = output_folder / f"{output_name}{idx}{OUTPUT_VIDEO_PATH.suffix}"
 
-            img.rename(output_folder / f"{output_name}{idx}{img.suffix}")
-            vid.rename(output_folder / f"{output_name}{idx}{OUTPUT_VIDEO_SUFFIX}")
-            print(f"Generated {img} and {vid}")
-            # the next video should start from the last frame of this one
-            full_cmd = f"python {ns.generate_script_path} -vid -ii {img}"
+            shutil.copy(OUTPUT_IMAGE_PATH, img_dst)
+            shutil.copy(OUTPUT_VIDEO_PATH, vid_dst)
+
+            print(f"Generated {img_dst} and {vid_dst}")
+            args = ''
 
     # make the final video by concatenating all previous
-    clips = output_folder.glob(f"*{OUTPUT_VIDEO_SUFFIX}")
+    clips = output_folder.glob(f"*{OUTPUT_VIDEO_PATH.suffix}")
 
-    merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_SUFFIX}")
+    merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}")
 
     return 0
+
+
+def find_prev_frame(curr_idx: int, output_name: str, output_folder: pathlib.Path) -> typing.Optional[pathlib.Path]:
+    img_paths = output_folder.glob(f"{output_name}*{OUTPUT_IMAGE_PATH.suffix}")
+    sorted(img_paths)
+    # find the image with the index most recent before this one, if it exists
+    img_re = re.compile(output_name + r'(?P<idx>\d+)' + OUTPUT_IMAGE_PATH.suffix)
+
+    prev_img = None
+    for img in img_paths:
+        match = img_re.match(img.name)
+        if match.group('idx') >= curr_idx:
+            return prev_img
+        prev_img = img
 
 
 def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib.Path) -> None:
