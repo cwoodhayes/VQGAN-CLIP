@@ -66,25 +66,32 @@ def main() -> int:
             args = ''
 
     # make the final video by concatenating all previous
-    clips = output_folder.glob(f"*{OUTPUT_VIDEO_PATH.suffix}")
+    final_output = output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}"
+    if final_output.exists():
+        final_output.unlink()
+    clips = list(output_folder.glob(f"*{OUTPUT_VIDEO_PATH.suffix}"))
+    clips = sorted(clips)
 
+    print(f'Merging {len(clips)} videos...')
     merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}")
+    print('Done.')
 
     return 0
 
 
 def find_prev_frame(curr_idx: int, output_name: str, output_folder: pathlib.Path) -> typing.Optional[pathlib.Path]:
-    img_paths = output_folder.glob(f"{output_name}*{OUTPUT_IMAGE_PATH.suffix}")
-    sorted(img_paths)
+    img_paths = list(output_folder.glob(f"{output_name}*{OUTPUT_IMAGE_PATH.suffix}"))
+    img_paths = sorted(img_paths)
     # find the image with the index most recent before this one, if it exists
     img_re = re.compile(output_name + r'(?P<idx>\d+)' + OUTPUT_IMAGE_PATH.suffix)
 
     prev_img = None
     for img in img_paths:
         match = img_re.match(img.name)
-        if match.group('idx') >= curr_idx:
+        if int(match.group('idx')) >= curr_idx:
             return prev_img
         prev_img = img
+    return prev_img
 
 
 def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib.Path) -> None:
@@ -95,6 +102,7 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
     with NamedTemporaryFile('w', delete=False) as input_list_file:
         tmp_file_name = input_list_file.name
         lines = [f"file {path.resolve()}\n" for path in video_list]
+        print(f'Merging these files\n{lines}')
         input_list_file.writelines(lines)
 
     # merge the video files
