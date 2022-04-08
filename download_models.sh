@@ -9,7 +9,7 @@ GUMBEL=false
 #WIKIART_1024=false
 WIKIART_16384=false
 COCO=false
-FACESHQ=false
+FACESHQ=true
 SFLCKR=false
 
 
