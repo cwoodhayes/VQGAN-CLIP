@@ -5,6 +5,7 @@ import typing
 import shutil
 from tempfile import NamedTemporaryFile
 import re
+import shlex
 
 OUTPUT_IMAGE_PATH = pathlib.Path('output.png')
 OUTPUT_VIDEO_PATH = pathlib.Path('output.mp4')
@@ -69,8 +70,9 @@ def main() -> int:
     final_output = output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}"
     if final_output.exists():
         final_output.unlink()
-    clips = list(output_folder.glob(f"*{OUTPUT_VIDEO_PATH.suffix}"))
-    clips = sorted(clips)
+    clips = list(output_folder.glob(f"{output_name}*{OUTPUT_VIDEO_PATH.suffix}"))
+    vid_re = re.compile(output_name + r'(?P<idx>\d+)' + OUTPUT_VIDEO_PATH.suffix)
+    clips = sorted(clips, key=lambda path: int(vid_re.match(path.name).group('idx')))
 
     print(f'Merging {len(clips)} videos...')
     merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}")
@@ -107,6 +109,8 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
 
     # merge the video files
     cmd = ["ffmpeg",
+           "-fflags",
+           "+igndts",
            "-f",
            "concat",
            "-safe",
@@ -115,9 +119,12 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
            tmp_file_name,
            "-c",
            "copy",
-           str(output_path)
+           str(output_path),
+           "-copytb",
+           "1"
            ]
-    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True)
+    print(f'Running merge command: {shlex.join(cmd)}')
+    proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True, encoding='utf8')
     print(proc.stdout)
     # delete the temp file
     pathlib.Path(tmp_file_name).unlink()
