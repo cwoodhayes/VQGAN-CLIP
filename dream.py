@@ -7,12 +7,18 @@ from tempfile import NamedTemporaryFile
 import re
 import shlex
 
+import gc
+import torch.cuda
+
 OUTPUT_IMAGE_PATH = pathlib.Path('output.png')
 OUTPUT_VIDEO_PATH = pathlib.Path('output.mp4')
 
 
 def main() -> int:
     ns = parse_args()
+
+    gc.collect()
+    torch.cuda.empty_cache()
 
     output_folder: pathlib.Path = ns.output_folder
     output_name = output_folder.name
@@ -75,7 +81,8 @@ def main() -> int:
     clips = sorted(clips, key=lambda path: int(vid_re.match(path.name).group('idx')))
 
     print(f'Merging {len(clips)} videos...')
-    merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}")
+    merge_videos(clips, output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}",
+                 audio_path=pathlib.Path(ns.audio_file) if ns.audio_file else None)
     print('Done.')
 
     return 0
@@ -96,8 +103,11 @@ def find_prev_frame(curr_idx: int, output_name: str, output_folder: pathlib.Path
     return prev_img
 
 
-def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib.Path) -> None:
+def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib.Path,
+                 audio_path: pathlib.Path = None) -> None:
     """
+    merges an ordered list of clips into one video, with audio on top
+
     :returns: path to merged video
     """
     # let's use ffmpeg directly. To do so, we need to make a temporary input file of all the files to merge
@@ -116,18 +126,59 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
            "-safe",
            "0",
            "-i",
-           tmp_file_name,
+           tmp_file_name]
+
+    # if audio_path is not None:
+    #     cmd.extend([
+    #        "-i",
+    #        str(audio_path),
+    #        # "-map",
+    #        # "0",
+    #        # "-map",
+    #        # "1:a",
+    #     ])
+    #
+    cmd.extend([
            "-c",
            "copy",
            str(output_path),
            "-copytb",
            "1"
-           ]
+           ])
     print(f'Running merge command: {shlex.join(cmd)}')
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True, encoding='utf8')
     print(proc.stdout)
     # delete the temp file
     pathlib.Path(tmp_file_name).unlink()
+
+    # add the audio using a separate command
+    # got this from here:
+    # https://stackoverflow.com/questions/11779490/how-to-add-a-new-audio-not-mixing-into-a-video-using-ffmpeg
+    # tried merging the two command but it didn't immediately work and this doesn't really waste too much time
+
+    if audio_path is not None:
+        tmp_output = output_path.parent / (output_path.stem + '.tmp' + output_path.suffix)
+        cmd = [
+            "ffmpeg",
+            "-i",
+            str(output_path),
+            "-i",
+            str(audio_path),
+            "-map",
+            "0",
+            "-map",
+            "1:a",
+            "-c",
+            "copy",
+            "-shortest",
+            str(tmp_output)
+        ]
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
+        print(proc.stdout)
+        if proc.returncode != 0:
+            raise subprocess.CalledProcessError(proc.returncode, "yada")
+        output_path.unlink()
+        tmp_output.rename(str(output_path))
 
     print(f'Created final video {output_path}')
 
@@ -164,6 +215,7 @@ def parse_args() -> argparse.Namespace:
                     default="dream-outputs"
                     )
     ns.add_argument("--force", action="store_true", default=False)
+    ns.add_argument("-a", "--audio-file", help="attach audio from the given file to the output video", default=None)
 
     return ns.parse_args()
 

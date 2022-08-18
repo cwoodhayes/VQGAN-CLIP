@@ -9,4 +9,5 @@
 
 #-i 140 -se 2 -vl 5 -p "I cry alone"
 
+ome more bugfixes. finished my first dream using this!
 #-i 140 -se 2 -vl 5 -p "a white space:.3 | waking up:.7" -ip "dream-outputs/ceiling_fan_wake_up.jpg"
