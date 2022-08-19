@@ -1,4 +1,5 @@
 import argparse
+import bisect
 import subprocess
 import pathlib
 import typing
@@ -9,6 +10,7 @@ import shlex
 
 import gc
 import torch.cuda
+import toml
 
 OUTPUT_IMAGE_PATH = pathlib.Path('output.png')
 OUTPUT_VIDEO_PATH = pathlib.Path('output.mp4')
@@ -31,8 +33,12 @@ def main() -> int:
     else:
         output_folder.mkdir(parents=True)
 
+    # parse the config file
+    config = toml.load(ns.config_path)
+
     with open(ns.commands_path, 'r') as commands_fp:
-        cmd_root = f"python {ns.generate_script_path} -vid "
+        cmd_base = f"python {ns.generate_script_path} -vid "
+        cmd_root = cmd_base
         args = ''
         img_dst: typing.Optional[pathlib.Path] = None
 
@@ -40,6 +46,9 @@ def main() -> int:
             line = line.strip()
             if line.startswith('#') or len(line) == 0:
                 continue
+            if line.startswith("GLOBAL:"):
+                # add these global args to the command
+                cmd_root = cmd_base + line.split("GLOBAL:")[1]
             args += f' {line}'
             if line.endswith('\\'):
                 args = args[:-1]
@@ -89,18 +98,20 @@ def main() -> int:
 
 
 def find_prev_frame(curr_idx: int, output_name: str, output_folder: pathlib.Path) -> typing.Optional[pathlib.Path]:
-    img_paths = list(output_folder.glob(f"{output_name}*{OUTPUT_IMAGE_PATH.suffix}"))
-    img_paths = sorted(img_paths)
     # find the image with the index most recent before this one, if it exists
+
+    img_paths = list(output_folder.glob(f"{output_name}*{OUTPUT_IMAGE_PATH.suffix}"))
     img_re = re.compile(output_name + r'(?P<idx>\d+)' + OUTPUT_IMAGE_PATH.suffix)
 
-    prev_img = None
-    for img in img_paths:
-        match = img_re.match(img.name)
-        if int(match.group('idx')) >= curr_idx:
-            return prev_img
-        prev_img = img
-    return prev_img
+    def get_file_index(path: pathlib.Path) -> typing.Optional[int]:
+        img_match = img_re.match(path.name)
+        return int(img_match.group('idx')) if img_match else None
+
+    img_indices = sorted(map(get_file_index, img_paths))
+    this_frame_idx = bisect.bisect_left(img_indices, curr_idx)
+    if this_frame_idx == 0:
+        return None
+    return output_folder / f"{output_name}{img_indices[this_frame_idx - 1]}{OUTPUT_IMAGE_PATH.suffix}"
 
 
 def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib.Path,
@@ -209,6 +220,7 @@ def parse_args() -> argparse.Namespace:
     ns = argparse.ArgumentParser('Dream Generator')
 
     ns.add_argument("commands_path", type=pathlib.Path)
+    ns.add_argument("--config_path", type=pathlib.Path, default=pathlib.Path("config/tiktok.toml"))
     ns.add_argument("--generate-script-path", type=pathlib.Path, default=pathlib.Path("generate.py"))
     ns.add_argument("-o", "--output-folder",
                     type=pathlib.Path,
