@@ -12,6 +12,8 @@ import gc
 import torch.cuda
 import toml
 
+from dreamlib import commands
+
 OUTPUT_IMAGE_PATH = pathlib.Path('output.png')
 OUTPUT_VIDEO_PATH = pathlib.Path('output.mp4')
 
@@ -37,9 +39,9 @@ def main() -> int:
     config = toml.load(ns.config_path)
 
     with open(ns.commands_path, 'r') as commands_fp:
-        cmd_base = f"python {ns.generate_script_path} -vid "
-        cmd_root = cmd_base
-        args = ''
+        global_options = ""
+        curr_cmd_str = ""
+
         img_dst: typing.Optional[pathlib.Path] = None
 
         for idx, line in enumerate(commands_fp):
@@ -47,12 +49,16 @@ def main() -> int:
             if line.startswith('#') or len(line) == 0:
                 continue
             if line.startswith("GLOBAL:"):
-                # add these global args to the command
-                cmd_root = cmd_base + line.split("GLOBAL:")[1]
-            args += f' {line}'
-            if line.endswith('\\'):
-                args = args[:-1]
+                # set new global options
+                global_options = line.split("GLOBAL:")[1]
                 continue
+            if line.endswith('\\'):
+                curr_cmd_str += line.strip()[:-1] + ' '
+                continue
+
+            curr_cmd_str += line
+            cmd = commands.GenerateVideoCommand.from_input_line(curr_cmd_str)
+            cmd.add_options(global_options)
 
             if not img_dst:
                 # if we don't have a previous run, see if we can find a cached image from our last run.
@@ -61,14 +67,16 @@ def main() -> int:
                 img_dst = find_prev_frame(idx, output_name, output_folder)
             if img_dst:
                 # the next video should start from the last frame of this one
-                args += f" -ii {img_dst}"
+                cmd.initial_frame_path = img_dst
+
+            # add configuration
+            cmd.add_options_from_config(config['video'])
 
             # and run that thang, piping stdout out
-            full_cmd = cmd_root + args
-            ret = run_cmd(full_cmd)
+            ret = commands.run_cmd(cmd)
 
             if ret != 0:
-                print(f'this returned error {ret}: {full_cmd}')
+                print(f'this returned error {ret}: {cmd}')
                 return 2
 
             # now grab the outputs and stick them in our output folder.
@@ -79,7 +87,7 @@ def main() -> int:
             shutil.copy(OUTPUT_VIDEO_PATH, vid_dst)
 
             print(f"Generated {img_dst} and {vid_dst}")
-            args = ''
+            curr_cmd_str = ''
 
     # make the final video by concatenating all previous
     final_output = output_folder / f"{output_name}{OUTPUT_VIDEO_PATH.suffix}"
@@ -194,34 +202,11 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
     print(f'Created final video {output_path}')
 
 
-def run_cmd(cmd_string: str) -> int:
-    print('running command: {}'.format(cmd_string))
-    # args = shlex.split(full_cmd)
-    process = subprocess.Popen(
-        shell=True,
-        args=cmd_string,
-        stderr=subprocess.STDOUT,
-        stdout=subprocess.PIPE,
-        bufsize=1,
-        encoding='utf8'
-    )
-
-    while True:
-        output = process.stdout.readline()
-        if output == '' and process.poll() is not None:
-            break
-        if output:
-            print(output.strip())
-    rc = process.poll()
-    return rc
-
-
 def parse_args() -> argparse.Namespace:
     ns = argparse.ArgumentParser('Dream Generator')
 
     ns.add_argument("commands_path", type=pathlib.Path)
     ns.add_argument("--config_path", type=pathlib.Path, default=pathlib.Path("config/tiktok.toml"))
-    ns.add_argument("--generate-script-path", type=pathlib.Path, default=pathlib.Path("generate.py"))
     ns.add_argument("-o", "--output-folder",
                     type=pathlib.Path,
                     default="dream-outputs"

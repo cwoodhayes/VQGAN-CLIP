@@ -1,0 +1,9 @@
+# config file for tiktok dream vids
+
+[video]
+frame-rate = 30
+# i wish i could do higher-res but I don't have the memory in my GPU :(
+width = 350
+height = 350
+save-every-freq = 2
+#extra-options =
