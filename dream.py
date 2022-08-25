@@ -1,3 +1,8 @@
+"""
+renders dreamlike videos of sticked GAN runs
+
+author: conor hayes
+"""
 import argparse
 import bisect
 import subprocess
