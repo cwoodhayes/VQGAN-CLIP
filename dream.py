@@ -11,7 +11,6 @@ import typing
 import shutil
 from tempfile import NamedTemporaryFile
 import re
-import shlex
 
 import gc
 import torch.cuda
@@ -169,7 +168,7 @@ def merge_videos(video_list: typing.Iterable[pathlib.Path], output_path: pathlib
            "-copytb",
            "1"
            ])
-    print(f'Running merge command: {shlex.join(cmd)}')
+    print(f'Running merge command: {repr(cmd)}')
     proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=True, encoding='utf8')
     print(proc.stdout)
     # delete the temp file
