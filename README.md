@@ -1,3 +1,8 @@
+conor note:
+this fork adds to the work below by adding the ability to make dreamlike videos based on text descriptions. 
+run `dream.py` to see this. here's an example i made:
+[https://drive.google.com/file/d/1KA07rFl6NODjetexJ3VWDcU9z1oajfeO/preview](https://drive.google.com/file/d/1KA07rFl6NODjetexJ3VWDcU9z1oajfeO/preview)
+
 # VQGAN-CLIP Overview
 
 A repo for running VQGAN+CLIP locally. This started out as a Katherine Crowson VQGAN+CLIP derived Google colab notebook.
